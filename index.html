@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Space Defender</title>
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+        }
+        canvas {
+            background-color: #000;
+            border: 2px solid #00ffcc;
+            box-shadow: 0 0 15px #00ffcc;
+        }
+        #controls {
+            margin-top: 15px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #00ffcc;
+            color: black;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #00cca3;
+        }
+    </style>
+</head>
+<body>
+
+    <h1> ESP32 Space Defender</h1>
+    <canvas id="gameCanvas" width="400" height="500"></canvas>
+
+    <div id="controls">
+        <p>Controles actuales: <strong>Teclado (Flechas y Espacio)</strong></p>
+        <button id="btnConnect">Conectar Mando ESP32 (Web Serial)</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let ship = {
+            x: canvas.width / 2 - 15,
+            y: canvas.height - 40,
+            width: 30,
+            height: 30,
+            speed: 5,
+            movingLeft: false,
+            movingRight: false
+        };
+
+
+        let lasers = [];
+        let asteroids = [];
+
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowLeft") ship.movingLeft = true;
+            if (e.key === "ArrowRight") ship.movingRight = true;
+            if (e.key === " ") shootLaser();
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "ArrowLeft") ship.movingLeft = false;
+            if (e.key === "ArrowRight") ship.movingRight = false;
+        });
+
+        function shootLaser() {
+            lasers.push({
+                x: ship.x + ship.width / 2 - 2,
+                y: ship.y,
+                width: 4,
+                height: 10,
+                speed: 7
+            });
+        }
+
+
+        function updateGame() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (ship.movingLeft && ship.x > 0) ship.x -= ship.speed;
+            if (ship.movingRight && ship.x < canvas.width - ship.width) ship.x += ship.speed;
+            
+            ctx.fillStyle = "#00ffcc";
+            ctx.fillRect(ship.x, ship.y, ship.width, ship.height);
+
+            ctx.fillStyle = "red";
+            for (let i = 0; i < lasers.length; i++) {
+                lasers[i].y -= lasers[i].speed;
+                ctx.fillRect(lasers[i].x, lasers[i].y, lasers[i].width, lasers[i].height);
+            }
+
+
+            requestAnimationFrame(updateGame);
+        }
+
+        updateGame();
+
+    </script>
+</body>
+</html>
