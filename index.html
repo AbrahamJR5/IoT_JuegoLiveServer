@@ -49,65 +49,160 @@
     </div>
 
     <script>
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 
-        let ship = {
-            x: canvas.width / 2 - 15,
-            y: canvas.height - 40,
-            width: 30,
-            height: 30,
-            speed: 5,
-            movingLeft: false,
-            movingRight: false
-        };
+// Variables de la nave
+let ship = {
+    x: canvas.width / 2 - 15,
+    y: canvas.height - 40,
+    width: 30,
+    height: 30,
+    speed: 6,
+    color: "#00ffcc"
+};
 
+let lasers = [];
+let asteroids = [];
+let score = 0;
+let gameOver = false;
 
-        let lasers = [];
-        let asteroids = [];
+// Variables para la conexión Serial
+let serialPort;
+let serialWriter;
 
-        window.addEventListener("keydown", (e) => {
-            if (e.key === "ArrowLeft") ship.movingLeft = true;
-            if (e.key === "ArrowRight") ship.movingRight = true;
-            if (e.key === " ") shootLaser();
-        });
+// --- CONEXIÓN WEB SERIAL API ---
+document.getElementById('btnConnect').addEventListener('click', async () => {
+    try {
+        // Pedimos al usuario que seleccione el puerto COM (Debe ser Chrome o Edge)
+        serialPort = await navigator.serial.requestPort();
+        await serialPort.open({ baudRate: 115200 }); // Misma velocidad que en C++
+        
+        alert("¡Mando ESP32 Conectado! Usa los cables/pines para jugar.");
 
-        window.addEventListener("keyup", (e) => {
-            if (e.key === "ArrowLeft") ship.movingLeft = false;
-            if (e.key === "ArrowRight") ship.movingRight = false;
-        });
+        // Preparamos el "Megáfono" para enviarle el comando HIT al ESP32
+        const textEncoder = new TextEncoderStream();
+        textEncoder.readable.pipeTo(serialPort.writable);
+        serialWriter = textEncoder.writable.getWriter();
 
-        function shootLaser() {
-            lasers.push({
-                x: ship.x + ship.width / 2 - 2,
-                y: ship.y,
-                width: 4,
-                height: 10,
-                speed: 7
-            });
-        }
+        // Iniciamos la oreja para escuchar los toques
+        leerMandoESP32();
+        
+    } catch (error) {
+        console.error("Error de conexión:", error);
+        alert("No se pudo conectar. Asegúrate de cerrar el Monitor Serial en VS Code primero.");
+    }
+});
 
+// Función para escuchar constantemente al ESP32
+async function leerMandoESP32() {
+    const textDecoder = new TextDecoderStream();
+    serialPort.readable.pipeTo(textDecoder.writable);
+    const reader = textDecoder.readable.getReader();
+    let buffer = "";
 
-        function updateGame() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) { reader.releaseLock(); break; }
+        
+        buffer += value;
+        let lines = buffer.split('\n');
+        buffer = lines.pop(); // Guardamos fragmentos incompletos
 
-            if (ship.movingLeft && ship.x > 0) ship.x -= ship.speed;
-            if (ship.movingRight && ship.x < canvas.width - ship.width) ship.x += ship.speed;
-            
-            ctx.fillStyle = "#00ffcc";
-            ctx.fillRect(ship.x, ship.y, ship.width, ship.height);
-
-            ctx.fillStyle = "red";
-            for (let i = 0; i < lasers.length; i++) {
-                lasers[i].y -= lasers[i].speed;
-                ctx.fillRect(lasers[i].x, lasers[i].y, lasers[i].width, lasers[i].height);
+        for (let line of lines) {
+            let comando = line.trim();
+            // Ejecutamos la acción según la letra recibida
+            if (comando === "I" && ship.x > 0) {
+                ship.x -= ship.speed;
+            } else if (comando === "D" && ship.x < canvas.width - ship.width) {
+                ship.x += ship.speed;
+            } else if (comando === "A" && !gameOver) {
+                shootLaser();
             }
+        }
+    }
+}
 
+// Función para mandar la señal PWM
+async function enviarGolpe() {
+    if (serialWriter) {
+        await serialWriter.write("HIT\n");
+    }
+}
 
-            requestAnimationFrame(updateGame);
+function shootLaser() {
+    // Evitar ráfagas infinitas para no saturar la memoria
+    if (lasers.length < 5) {
+        lasers.push({ x: ship.x + ship.width / 2 - 2, y: ship.y, width: 4, height: 10, speed: 7 });
+    }
+}
+
+function spawnAsteroid() {
+    if(gameOver) return;
+    asteroids.push({ x: Math.random() * (canvas.width - 30), y: -30, width: 30, height: 30, speed: 2 + Math.random() * 2 });
+    setTimeout(spawnAsteroid, Math.random() * 1500 + 500); 
+}
+
+function updateGame() {
+    if (gameOver) return; 
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    
+    ctx.fillStyle = ship.color;
+    ctx.fillRect(ship.x, ship.y, ship.width, ship.height);
+
+    
+    ctx.fillStyle = "red";
+    for (let i = lasers.length - 1; i >= 0; i--) {
+        lasers[i].y -= lasers[i].speed;
+        ctx.fillRect(lasers[i].x, lasers[i].y, lasers[i].width, lasers[i].height);
+        if (lasers[i].y < 0) lasers.splice(i, 1);
+    }
+
+    
+    ctx.fillStyle = "#888"; 
+    for (let i = asteroids.length - 1; i >= 0; i--) {
+        asteroids[i].y += asteroids[i].speed;
+        ctx.fillRect(asteroids[i].x, asteroids[i].y, asteroids[i].width, asteroids[i].height);
+
+    
+        if (asteroids[i].x < ship.x + ship.width && asteroids[i].x + asteroids[i].width > ship.x &&
+            asteroids[i].y < ship.y + ship.height && asteroids[i].y + asteroids[i].height > ship.y) {
+            
+            gameOver = true;
+            enviarGolpe(); 
+            
+        
+            ctx.fillStyle = "white";
+            ctx.font = "30px Arial";
+            ctx.fillText("¡ESTRELLADO!", 90, canvas.height / 2);
         }
 
-        updateGame();
+        
+        for (let j = lasers.length - 1; j >= 0; j--) {
+            if (lasers[j] && asteroids[i] && 
+                lasers[j].x < asteroids[i].x + asteroids[i].width && lasers[j].x + lasers[j].width > asteroids[i].x &&
+                lasers[j].y < asteroids[i].y + asteroids[i].height && lasers[j].y + lasers[j].height > asteroids[i].y) {
+                asteroids.splice(i, 1);
+                lasers.splice(j, 1);
+                score += 10;
+                break; 
+            }
+        }
+        if (asteroids[i] && asteroids[i].y > canvas.height) asteroids.splice(i, 1);
+    }
+
+    ctx.fillStyle = "white";
+    ctx.font = "16px Arial";
+    ctx.fillText("Puntos: " + score, 10, 20);
+
+    requestAnimationFrame(updateGame);
+}
+
+// Iniciar juego
+spawnAsteroid();
+updateGame();
 
     </script>
 </body>
